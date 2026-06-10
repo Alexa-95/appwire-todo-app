@@ -1,19 +1,33 @@
 import { useEffect, useState } from 'react';
-import { databases, ID, DATABASE_ID, COLLECTION_ID } from './appwrite';
+import {
+  databases,
+  storage,
+  ID,
+  DATABASE_ID,
+  COLLECTION_ID,
+  BUCKET_ID,
+} from './appwrite';
 import './App.css';
 
 function App() {
   const [todos, setTodos] = useState([]);
   const [newTodo, setNewTodo] = useState('');
+  const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const getImageUrl = (imageId) => {
+    if (!imageId) return null;
+
+    return storage.getFileView(BUCKET_ID, imageId);
+  };
 
   const getTodos = async () => {
     try {
       setLoading(true);
 
       const response = await databases.listDocuments(
-        DATABASE_ID,
-        COLLECTION_ID
+          DATABASE_ID,
+          COLLECTION_ID
       );
 
       setTodos(response.documents);
@@ -30,32 +44,55 @@ function App() {
     if (!newTodo.trim()) return;
 
     try {
+      let imageId = '';
+
+      if (image) {
+        const uploadedImage = await storage.createFile(
+            BUCKET_ID,
+            ID.unique(),
+            image
+        );
+
+        imageId = uploadedImage.$id;
+      }
+
       const createdTodo = await databases.createDocument(
-        DATABASE_ID,
-        COLLECTION_ID,
-        ID.unique(),
-        {
-          title: newTodo,
-        }
+          DATABASE_ID,
+          COLLECTION_ID,
+          ID.unique(),
+          {
+            title: newTodo,
+            imageId,
+          }
       );
 
       setTodos((prevTodos) => [createdTodo, ...prevTodos]);
       setNewTodo('');
+      setImage(null);
+
+      event.target.reset();
     } catch (error) {
       console.error('Błąd dodawania TODO:', error);
     }
   };
 
-  const deleteTodo = async (id) => {
+  const deleteTodo = async (todo) => {
     try {
       await databases.deleteDocument(
-        DATABASE_ID,
-        COLLECTION_ID,
-        id
+          DATABASE_ID,
+          COLLECTION_ID,
+          todo.$id
       );
 
+      if (todo.imageId) {
+        await storage.deleteFile(
+            BUCKET_ID,
+            todo.imageId
+        );
+      }
+
       setTodos((prevTodos) =>
-        prevTodos.filter((todo) => todo.$id !== id)
+          prevTodos.filter((item) => item.$id !== todo.$id)
       );
     } catch (error) {
       console.error('Błąd usuwania TODO:', error);
@@ -67,47 +104,63 @@ function App() {
   }, []);
 
   return (
-    <main className="app">
-      <section className="todo-box">
-        <h1>Lista TODO</h1>
+      <main className="app">
+        <section className="todo-box">
+          <h1>Lista TODO</h1>
 
-        <form onSubmit={addTodo} className="todo-form">
-          <input
-            type="text"
-            placeholder="Dodaj nowe zadanie..."
-            value={newTodo}
-            onChange={(event) => setNewTodo(event.target.value)}
-          />
+          <form onSubmit={addTodo} className="todo-form">
+            <input
+                type="text"
+                placeholder="Dodaj nowe zadanie..."
+                value={newTodo}
+                onChange={(event) => setNewTodo(event.target.value)}
+            />
 
-          <button type="submit">
-            Dodaj
-          </button>
-        </form>
+            <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => setImage(event.target.files[0])}
+            />
 
-        {loading ? (
-          <p>Ładowanie zadań...</p>
-        ) : (
-          <ul className="todo-list">
-            {todos.length === 0 ? (
-              <p>Brak zadań.</p>
-            ) : (
-              todos.map((todo) => (
-                <li key={todo.$id} className="todo-item">
-                  <span>{todo.title}</span>
+            <button type="submit">
+              Dodaj
+            </button>
+          </form>
 
-                  <button
-                    type="button"
-                    onClick={() => deleteTodo(todo.$id)}
-                  >
-                    Usuń
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
-        )}
-      </section>
-    </main>
+          {loading ? (
+              <p>Ładowanie zadań...</p>
+          ) : (
+              <ul className="todo-list">
+                {todos.length === 0 ? (
+                    <p>Brak zadań.</p>
+                ) : (
+                    todos.map((todo) => (
+                        <li key={todo.$id} className="todo-item">
+                          <div className="todo-content">
+                            {todo.imageId && (
+                                <img
+                                    src={getImageUrl(todo.imageId)}
+                                    alt={todo.title}
+                                    className="todo-image"
+                                />
+                            )}
+
+                            <span>{todo.title}</span>
+                          </div>
+
+                          <button
+                              type="button"
+                              onClick={() => deleteTodo(todo)}
+                          >
+                            Usuń
+                          </button>
+                        </li>
+                    ))
+                )}
+              </ul>
+          )}
+        </section>
+      </main>
   );
 }
 
